@@ -12,7 +12,7 @@ interface Question {
 
 interface ActiveGame {
   gameRoomId: string;
-  gameType: 'TIC_TAC_TOE' | 'CONNECT_4' | 'DOTS_AND_BOXES' | 'BATTLESHIP' | 'WORD_HUNT' | 'COWBOY_DUEL';
+  gameType: 'TIC_TAC_TOE' | 'CONNECT_4' | 'DOTS_AND_BOXES' | 'BATTLESHIP' | 'WORD_HUNT' | 'COWBOY_DUEL' | 'TUG_OF_WAR' | 'ROCK_PAPER_SCISSORS';
   opponentNickname: string;
   symbol: 'X' | 'O' | 'R' | 'Y' | string;
   myTurn: boolean;
@@ -39,7 +39,7 @@ export function useGameSocket() {
   const [myGuestId, setMyGuestId] = useState<string | null>(null);
   
   // 2-Player Game states
-  const [incomingChallenge, setIncomingChallenge] = useState<{ challengerId: string; challengerNickname: string; gameType: 'TIC_TAC_TOE' | 'CONNECT_4' | 'DOTS_AND_BOXES' | 'BATTLESHIP' | 'WORD_HUNT' | 'COWBOY_DUEL' } | null>(null);
+  const [incomingChallenge, setIncomingChallenge] = useState<{ challengerId: string; challengerNickname: string; gameType: 'TIC_TAC_TOE' | 'CONNECT_4' | 'DOTS_AND_BOXES' | 'BATTLESHIP' | 'WORD_HUNT' | 'COWBOY_DUEL' | 'TUG_OF_WAR' | 'ROCK_PAPER_SCISSORS' } | null>(null);
   const [activeGame, setActiveGame] = useState<ActiveGame | null>(null);
   const [battleshipState, setBattleshipState] = useState<{ placementDone: boolean; p1Placed: boolean; p2Placed: boolean }>({ placementDone: false, p1Placed: false, p2Placed: false });
   const [wordHuntState, setWordHuntState] = useState<{ p1Score: number; p2Score: number; p1Words: string[]; p2Words: string[] }>({ p1Score: 0, p2Score: 0, p1Words: [], p2Words: [] });
@@ -52,6 +52,16 @@ export function useGameSocket() {
     foulPlayerName?: string;
     p1ShotTime?: number;
     p2ShotTime?: number;
+    scores: { p1Score: number; p2Score: number };
+  } | null>(null);
+  const [rpsRound, setRpsRound] = useState<number>(1);
+  const [rpsChoiceConfirmed, setRpsChoiceConfirmed] = useState<'ROCK' | 'PAPER' | 'SCISSORS' | null>(null);
+  const [rpsRoundResults, setRpsRoundResults] = useState<{
+    p1Choice: 'ROCK' | 'PAPER' | 'SCISSORS';
+    p2Choice: 'ROCK' | 'PAPER' | 'SCISSORS';
+    winnerId: string | null;
+    winnerName: string | null;
+    draw: boolean;
     scores: { p1Score: number; p2Score: number };
   } | null>(null);
 
@@ -118,6 +128,9 @@ export function useGameSocket() {
           setDuelState('STEADY');
           setDuelRound(1);
           setDuelResults(null);
+          setRpsRound(1);
+          setRpsChoiceConfirmed(null);
+          setRpsRoundResults(null);
           setActiveGame({
             gameRoomId: data.payload.gameRoomId,
             gameType: data.payload.gameType,
@@ -155,6 +168,14 @@ export function useGameSocket() {
           setDuelState('STEADY');
           setDuelRound(data.payload.round);
           setDuelResults(null);
+        } else if (data.type === 'RPS_CHOICE_CONFIRMED') {
+          setRpsChoiceConfirmed(data.payload.choice);
+        } else if (data.type === 'RPS_ROUND_OVER') {
+          setRpsRoundResults(data.payload);
+        } else if (data.type === 'RPS_NEXT_ROUND') {
+          setRpsRound(data.payload.round);
+          setRpsChoiceConfirmed(null);
+          setRpsRoundResults(null);
         } else if (data.type === 'GAME_OVER') {
           if (data.payload.scores) {
             setWordHuntState({
@@ -163,6 +184,9 @@ export function useGameSocket() {
               p1Words: wordHuntState.p1Words,
               p2Words: wordHuntState.p2Words
             });
+            if (activeGame?.gameType === 'ROCK_PAPER_SCISSORS') {
+              setRpsRoundResults(prev => prev ? { ...prev, scores: data.payload.scores } : null);
+            }
           }
           setActiveGame((prev) => {
             if (!prev) return null;
@@ -205,7 +229,7 @@ export function useGameSocket() {
 
   // --- 2-Player Game Helpers ---
 
-  const sendChallenge = (targetGuestId: string, gameType: 'TIC_TAC_TOE' | 'CONNECT_4' | 'DOTS_AND_BOXES' | 'BATTLESHIP' | 'WORD_HUNT' | 'COWBOY_DUEL') => {
+  const sendChallenge = (targetGuestId: string, gameType: 'TIC_TAC_TOE' | 'CONNECT_4' | 'DOTS_AND_BOXES' | 'BATTLESHIP' | 'WORD_HUNT' | 'COWBOY_DUEL' | 'TUG_OF_WAR' | 'ROCK_PAPER_SCISSORS') => {
     if (ws.current?.readyState === WebSocket.OPEN) {
       ws.current.send(JSON.stringify({
         type: 'SEND_CHALLENGE',
@@ -214,7 +238,7 @@ export function useGameSocket() {
     }
   };
 
-  const respondToChallenge = (challengerId: string, accepted: boolean, gameType?: 'TIC_TAC_TOE' | 'CONNECT_4' | 'DOTS_AND_BOXES' | 'BATTLESHIP' | 'WORD_HUNT' | 'COWBOY_DUEL') => {
+  const respondToChallenge = (challengerId: string, accepted: boolean, gameType?: 'TIC_TAC_TOE' | 'CONNECT_4' | 'DOTS_AND_BOXES' | 'BATTLESHIP' | 'WORD_HUNT' | 'COWBOY_DUEL' | 'TUG_OF_WAR' | 'ROCK_PAPER_SCISSORS') => {
     setIncomingChallenge(null);
     if (ws.current?.readyState === WebSocket.OPEN) {
       ws.current.send(JSON.stringify({
@@ -287,6 +311,24 @@ export function useGameSocket() {
     }
   };
 
+  const pullTugOfWar = (gameRoomId: string) => {
+    if (ws.current?.readyState === WebSocket.OPEN) {
+      ws.current.send(JSON.stringify({
+        type: 'TUG_OF_WAR_PULL',
+        payload: { gameRoomId }
+      }));
+    }
+  };
+
+  const submitRpsChoice = (gameRoomId: string, choice: 'ROCK' | 'PAPER' | 'SCISSORS') => {
+    if (ws.current?.readyState === WebSocket.OPEN) {
+      ws.current.send(JSON.stringify({
+        type: 'RPS_SUBMIT',
+        payload: { gameRoomId, choice }
+      }));
+    }
+  };
+
   const closeGame = () => {
     setActiveGame(null);
   };
@@ -315,6 +357,9 @@ export function useGameSocket() {
     duelState,
     duelRound,
     duelResults,
+    rpsRound,
+    rpsChoiceConfirmed,
+    rpsRoundResults,
     myGuestId,
     joinSession,
     joinCasual,
@@ -328,6 +373,8 @@ export function useGameSocket() {
     strikeBattleshipCoordinate,
     submitWordHuntWord,
     shootQuickDraw,
+    pullTugOfWar,
+    submitRpsChoice,
     closeGame,
   };
 }

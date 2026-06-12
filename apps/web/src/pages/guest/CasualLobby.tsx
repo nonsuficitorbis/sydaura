@@ -6,6 +6,8 @@ import { DotsAndBoxes } from '../../components/games/DotsAndBoxes';
 import { Battleship } from '../../components/games/Battleship';
 import { WordHunt } from '../../components/games/WordHunt';
 import { CowboyDuel } from '../../components/games/CowboyDuel';
+import { TugOfWar } from '../../components/games/TugOfWar';
+import { RockPaperScissors } from '../../components/games/RockPaperScissors';
 
 interface CasualLobbyProps {
   locationId: string;
@@ -26,6 +28,9 @@ export const CasualLobby: React.FC<CasualLobbyProps> = ({ locationId, onBack }) 
     duelState,
     duelRound,
     duelResults,
+    rpsRound,
+    rpsChoiceConfirmed,
+    rpsRoundResults,
     joinCasual,
     sendChallenge,
     respondToChallenge,
@@ -36,6 +41,8 @@ export const CasualLobby: React.FC<CasualLobbyProps> = ({ locationId, onBack }) 
     strikeBattleshipCoordinate,
     submitWordHuntWord,
     shootQuickDraw,
+    pullTugOfWar,
+    submitRpsChoice,
     closeGame,
   } = useGameSocket();
 
@@ -52,6 +59,8 @@ export const CasualLobby: React.FC<CasualLobbyProps> = ({ locationId, onBack }) 
       case 'BATTLESHIP': return 'Battleship';
       case 'WORD_HUNT': return 'Word Hunt';
       case 'COWBOY_DUEL': return 'Quick Draw 🤠';
+      case 'TUG_OF_WAR': return 'Tug of War 🪢';
+      case 'ROCK_PAPER_SCISSORS': return 'RPS ✊';
       default: return 'Tic-Tac-Toe';
     }
   };
@@ -178,6 +187,20 @@ export const CasualLobby: React.FC<CasualLobbyProps> = ({ locationId, onBack }) 
                         >
                           Quick Draw 🤠
                         </button>
+                        <button 
+                          className="btn-primary" 
+                          style={{ padding: '0.4rem 0.6rem', fontSize: '0.75rem' }}
+                          onClick={() => sendChallenge(p.guestId, 'TUG_OF_WAR')}
+                        >
+                          Tug of War 🪢
+                        </button>
+                        <button 
+                          className="btn-primary" 
+                          style={{ padding: '0.4rem 0.6rem', fontSize: '0.75rem' }}
+                          onClick={() => sendChallenge(p.guestId, 'ROCK_PAPER_SCISSORS')}
+                        >
+                          RPS ✊
+                        </button>
                       </div>
                     )}
                   </div>
@@ -275,6 +298,32 @@ export const CasualLobby: React.FC<CasualLobbyProps> = ({ locationId, onBack }) 
               duelResults={duelResults}
               isPlayer1={activeGame.isPlayer1}
               onShoot={() => shootQuickDraw(activeGame.gameRoomId)}
+              onClose={closeGame}
+            />
+          )}
+
+          {activeGame && activeGame.gameType === 'TUG_OF_WAR' && (
+            <TugOfWar
+              opponentNickname={activeGame.opponentNickname}
+              board={activeGame.board}
+              gameOver={activeGame.gameOver}
+              isPlayer1={activeGame.isPlayer1}
+              myGuestId={myGuestId}
+              onPull={() => pullTugOfWar(activeGame.gameRoomId)}
+              onClose={closeGame}
+            />
+          )}
+
+          {activeGame && activeGame.gameType === 'ROCK_PAPER_SCISSORS' && (
+            <RockPaperScissors
+              opponentNickname={activeGame.opponentNickname}
+              gameOver={activeGame.gameOver}
+              rpsRound={rpsRound}
+              rpsChoiceConfirmed={rpsChoiceConfirmed}
+              rpsRoundResults={rpsRoundResults}
+              isPlayer1={activeGame.isPlayer1}
+              myGuestId={myGuestId}
+              onSubmitChoice={(choice) => submitRpsChoice(activeGame.gameRoomId, choice)}
               onClose={closeGame}
             />
           )}

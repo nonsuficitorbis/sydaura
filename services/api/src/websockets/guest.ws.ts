@@ -12,7 +12,7 @@ interface SessionState {
 
 interface CasualGame {
   gameRoomId: string;
-  gameType: 'TIC_TAC_TOE' | 'CONNECT_4' | 'DOTS_AND_BOXES' | 'BATTLESHIP' | 'WORD_HUNT' | 'COWBOY_DUEL';
+  gameType: 'TIC_TAC_TOE' | 'CONNECT_4' | 'DOTS_AND_BOXES' | 'BATTLESHIP' | 'WORD_HUNT' | 'COWBOY_DUEL' | 'TUG_OF_WAR' | 'ROCK_PAPER_SCISSORS';
   player1: { guestId: string; ws: WebSocket; nickname: string; symbol: string };
   player2: { guestId: string; ws: WebSocket; nickname: string; symbol: string };
   board: (string | null)[];
@@ -23,18 +23,24 @@ interface CasualGame {
   p2Ships?: number[];
   p1Strikes?: number[];
   p2Strikes?: number[];
-  p1Score?: number;
-  p2Score?: number;
-  p1Words?: string[];
-  p2Words?: string[];
-  duelRound?: number;
-  duelState?: 'STEADY' | 'DRAW' | 'ROUND_OVER';
-  duelDrawTime?: number;
-  duelTimer?: NodeJS.Timeout;
-  p1DuelWins?: number;
-  p2DuelWins?: number;
-  p1ShotTime?: number;
-  p2ShotTime?: number;
+  p1Score?: number | undefined;
+  p2Score?: number | undefined;
+  p1Words?: string[] | undefined;
+  p2Words?: string[] | undefined;
+  duelRound?: number | undefined;
+  duelState?: 'STEADY' | 'DRAW' | 'ROUND_OVER' | undefined;
+  duelDrawTime?: number | undefined;
+  duelTimer?: NodeJS.Timeout | undefined;
+  p1DuelWins?: number | undefined;
+  p2DuelWins?: number | undefined;
+  p1ShotTime?: number | undefined;
+  p2ShotTime?: number | undefined;
+  ropePosition?: number | undefined;
+  p1RpsChoice?: 'ROCK' | 'PAPER' | 'SCISSORS' | null | undefined;
+  p2RpsChoice?: 'ROCK' | 'PAPER' | 'SCISSORS' | null | undefined;
+  rpsRound?: number | undefined;
+  p1RpsWins?: number | undefined;
+  p2RpsWins?: number | undefined;
 }
 
 const sessions: Record<string, SessionState> = {};
@@ -350,6 +356,14 @@ export function handleGuestConnection(ws: WebSocket) {
             p1Symbol = 'C';
             p2Symbol = 'C';
             boardSize = 2;
+          } else if (gType === 'TUG_OF_WAR') {
+            p1Symbol = 'T';
+            p2Symbol = 'T';
+            boardSize = 1;
+          } else if (gType === 'ROCK_PAPER_SCISSORS') {
+            p1Symbol = 'R';
+            p2Symbol = 'R';
+            boardSize = 2;
           }
 
           const boardArray = Array(boardSize).fill(null);
@@ -360,6 +374,13 @@ export function handleGuestConnection(ws: WebSocket) {
               const letters = (i % 3 === 0) ? vowels : consonants;
               boardArray[i] = letters[Math.floor(Math.random() * letters.length)];
             }
+          }
+
+          if (gType === 'TUG_OF_WAR') {
+            boardArray[0] = '0';
+          } else if (gType === 'ROCK_PAPER_SCISSORS') {
+            boardArray[0] = '0';
+            boardArray[1] = '0';
           }
 
           activeGames[gameRoomId] = {
@@ -376,6 +397,10 @@ export function handleGuestConnection(ws: WebSocket) {
             duelRound: gType === 'COWBOY_DUEL' ? 1 : undefined,
             p1DuelWins: gType === 'COWBOY_DUEL' ? 0 : undefined,
             p2DuelWins: gType === 'COWBOY_DUEL' ? 0 : undefined,
+            ropePosition: gType === 'TUG_OF_WAR' ? 0 : undefined,
+            rpsRound: gType === 'ROCK_PAPER_SCISSORS' ? 1 : undefined,
+            p1RpsWins: gType === 'ROCK_PAPER_SCISSORS' ? 0 : undefined,
+            p2RpsWins: gType === 'ROCK_PAPER_SCISSORS' ? 0 : undefined,
           };
 
           if (gType === 'WORD_HUNT') {
@@ -412,6 +437,7 @@ export function handleGuestConnection(ws: WebSocket) {
                 g.player1.ws.send(JSON.stringify(gameOverMsg));
                 g.player2.ws.send(JSON.stringify(gameOverMsg));
                 delete activeGames[gameRoomId];
+              }
             }, 60000);
           }
 
@@ -1005,6 +1031,150 @@ export function handleGuestConnection(ws: WebSocket) {
                 const nextMsg = {
                   type: 'COWBOY_NEXT_ROUND',
                   payload: { round: g.duelRound }
+                };
+                g.player1.ws.send(JSON.stringify(nextMsg));
+                g.player2.ws.send(JSON.stringify(nextMsg));
+              }
+            }, 3000);
+          }
+        }
+      }
+
+      if (data.type === 'TUG_OF_WAR_PULL') {
+        const { gameRoomId } = data.payload;
+        if (!currentGuestId || !activeGames[gameRoomId]) return;
+
+        const game = activeGames[gameRoomId];
+        const isPlayer1 = game.player1.guestId === currentGuestId;
+
+        game.ropePosition = (game.ropePosition || 0) + (isPlayer1 ? 1 : -1);
+        game.board[0] = String(game.ropePosition);
+
+        // Win threshold at +10 and -10
+        if (game.ropePosition >= 10 || game.ropePosition <= -10) {
+          const winnerId = game.ropePosition >= 10 ? game.player1.guestId : game.player2.guestId;
+          const winnerName = game.ropePosition >= 10 ? game.player1.nickname : game.player2.nickname;
+
+          const gameOverMsg = {
+            type: 'GAME_OVER',
+            payload: {
+              board: game.board,
+              winnerId,
+              winnerName,
+              draw: false
+            }
+          };
+
+          game.player1.ws.send(JSON.stringify(gameOverMsg));
+          game.player2.ws.send(JSON.stringify(gameOverMsg));
+          delete activeGames[gameRoomId];
+        } else {
+          // Normal position update
+          const updateMsg = {
+            type: 'GAME_UPDATE',
+            payload: {
+              board: game.board,
+              myTurn: false // Simultaneous, turns don't matter
+            }
+          };
+
+          game.player1.ws.send(JSON.stringify(updateMsg));
+          game.player2.ws.send(JSON.stringify(updateMsg));
+        }
+      }
+
+      if (data.type === 'RPS_SUBMIT') {
+        const { gameRoomId, choice } = data.payload;
+        if (!currentGuestId || !activeGames[gameRoomId]) return;
+
+        const game = activeGames[gameRoomId];
+        const isPlayer1 = game.player1.guestId === currentGuestId;
+
+        if (isPlayer1) {
+          game.p1RpsChoice = choice;
+        } else {
+          game.p2RpsChoice = choice;
+        }
+
+        // Send confirmation to the player who selected
+        ws.send(JSON.stringify({
+          type: 'RPS_CHOICE_CONFIRMED',
+          payload: { choice }
+        }));
+
+        // If both submitted, evaluate round
+        if (game.p1RpsChoice && game.p2RpsChoice) {
+          const c1 = game.p1RpsChoice;
+          const c2 = game.p2RpsChoice;
+          let roundWinnerId: string | null = null;
+          let roundWinnerName: string | null = null;
+          let isDraw = false;
+
+          if (c1 === c2) {
+            isDraw = true;
+          } else if (
+            (c1 === 'ROCK' && c2 === 'SCISSORS') ||
+            (c1 === 'SCISSORS' && c2 === 'PAPER') ||
+            (c1 === 'PAPER' && c2 === 'ROCK')
+          ) {
+            game.p1RpsWins = (game.p1RpsWins || 0) + 1;
+            game.board[0] = String(game.p1RpsWins);
+            roundWinnerId = game.player1.guestId;
+            roundWinnerName = game.player1.nickname;
+          } else {
+            game.p2RpsWins = (game.p2RpsWins || 0) + 1;
+            game.board[1] = String(game.p2RpsWins);
+            roundWinnerId = game.player2.guestId;
+            roundWinnerName = game.player2.nickname;
+          }
+
+          const roundOverMsg = {
+            type: 'RPS_ROUND_OVER',
+            payload: {
+              p1Choice: c1,
+              p2Choice: c2,
+              winnerId: roundWinnerId,
+              winnerName: roundWinnerName,
+              draw: isDraw,
+              scores: { p1Score: game.p1RpsWins, p2Score: game.p2RpsWins }
+            }
+          };
+
+          game.player1.ws.send(JSON.stringify(roundOverMsg));
+          game.player2.ws.send(JSON.stringify(roundOverMsg));
+
+          // Clear choices for next round
+          game.p1RpsChoice = null;
+          game.p2RpsChoice = null;
+
+          // Check overall winner
+          if (game.p1RpsWins === 2 || game.p2RpsWins === 2) {
+            const finalWinnerId = game.p1RpsWins === 2 ? game.player1.guestId : game.player2.guestId;
+            const finalWinnerName = game.p1RpsWins === 2 ? game.player1.nickname : game.player2.nickname;
+
+            setTimeout(() => {
+              const gameOverMsg = {
+                type: 'GAME_OVER',
+                payload: {
+                  board: game.board,
+                  winnerId: finalWinnerId,
+                  winnerName: finalWinnerName,
+                  draw: false
+                }
+              };
+              game.player1.ws.send(JSON.stringify(gameOverMsg));
+              game.player2.ws.send(JSON.stringify(gameOverMsg));
+              delete activeGames[gameRoomId];
+            }, 2500);
+          } else {
+            // Next round trigger
+            setTimeout(() => {
+              if (activeGames[gameRoomId]) {
+                const g = activeGames[gameRoomId];
+                g.rpsRound = (g.rpsRound || 1) + 1;
+                const nextMsg = {
+                  type: 'RPS_NEXT_ROUND',
+                  payload: { round: g.rpsRound }
                 };
                 g.player1.ws.send(JSON.stringify(nextMsg));
                 g.player2.ws.send(JSON.stringify(nextMsg));
