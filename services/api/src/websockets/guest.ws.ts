@@ -12,7 +12,7 @@ interface SessionState {
 
 interface CasualGame {
   gameRoomId: string;
-  gameType: 'TIC_TAC_TOE' | 'CONNECT_4' | 'DOTS_AND_BOXES' | 'BATTLESHIP' | 'WORD_HUNT';
+  gameType: 'TIC_TAC_TOE' | 'CONNECT_4' | 'DOTS_AND_BOXES' | 'BATTLESHIP' | 'WORD_HUNT' | 'COWBOY_DUEL';
   player1: { guestId: string; ws: WebSocket; nickname: string; symbol: string };
   player2: { guestId: string; ws: WebSocket; nickname: string; symbol: string };
   board: (string | null)[];
@@ -27,6 +27,14 @@ interface CasualGame {
   p2Score?: number;
   p1Words?: string[];
   p2Words?: string[];
+  duelRound?: number;
+  duelState?: 'STEADY' | 'DRAW' | 'ROUND_OVER';
+  duelDrawTime?: number;
+  duelTimer?: NodeJS.Timeout;
+  p1DuelWins?: number;
+  p2DuelWins?: number;
+  p1ShotTime?: number;
+  p2ShotTime?: number;
 }
 
 const sessions: Record<string, SessionState> = {};
@@ -122,6 +130,36 @@ function checkConnect4Winner(board: (string | null)[]): string | null {
   }
 
   return null;
+}
+
+function startCowboyRound(gameRoomId: string) {
+  const game = activeGames[gameRoomId];
+  if (!game) return;
+
+  game.duelState = 'STEADY';
+  game.duelDrawTime = undefined;
+  game.p1ShotTime = undefined;
+  game.p2ShotTime = undefined;
+
+  if (game.duelTimer) {
+    clearTimeout(game.duelTimer);
+  }
+
+  const delay = 2000 + Math.random() * 3000;
+  game.duelTimer = setTimeout(() => {
+    if (activeGames[gameRoomId]) {
+      const g = activeGames[gameRoomId];
+      g.duelState = 'DRAW';
+      g.duelDrawTime = Date.now();
+
+      const drawMsg = {
+        type: 'COWBOY_DRAW_SIGNAL',
+        payload: { round: g.duelRound }
+      };
+      g.player1.ws.send(JSON.stringify(drawMsg));
+      g.player2.ws.send(JSON.stringify(drawMsg));
+    }
+  }, delay);
 }
 
 export function handleGuestConnection(ws: WebSocket) {
@@ -308,6 +346,10 @@ export function handleGuestConnection(ws: WebSocket) {
             p1Symbol = 'W';
             p2Symbol = 'W';
             boardSize = 16;
+          } else if (gType === 'COWBOY_DUEL') {
+            p1Symbol = 'C';
+            p2Symbol = 'C';
+            boardSize = 2;
           }
 
           const boardArray = Array(boardSize).fill(null);
@@ -331,6 +373,9 @@ export function handleGuestConnection(ws: WebSocket) {
             p2Score: gType === 'WORD_HUNT' ? 0 : undefined,
             p1Words: gType === 'WORD_HUNT' ? [] : undefined,
             p2Words: gType === 'WORD_HUNT' ? [] : undefined,
+            duelRound: gType === 'COWBOY_DUEL' ? 1 : undefined,
+            p1DuelWins: gType === 'COWBOY_DUEL' ? 0 : undefined,
+            p2DuelWins: gType === 'COWBOY_DUEL' ? 0 : undefined,
           };
 
           if (gType === 'WORD_HUNT') {
@@ -367,8 +412,11 @@ export function handleGuestConnection(ws: WebSocket) {
                 g.player1.ws.send(JSON.stringify(gameOverMsg));
                 g.player2.ws.send(JSON.stringify(gameOverMsg));
                 delete activeGames[gameRoomId];
-              }
             }, 60000);
+          }
+
+          if (gType === 'COWBOY_DUEL') {
+            startCowboyRound(gameRoomId);
           }
 
           challenger.ws.send(JSON.stringify({
@@ -811,6 +859,161 @@ export function handleGuestConnection(ws: WebSocket) {
         game.player2.ws.send(JSON.stringify(scoreUpdate));
       }
 
+      if (data.type === 'COWBOY_DUEL_SHOOT') {
+        const { gameRoomId } = data.payload;
+        if (!currentGuestId || !activeGames[gameRoomId]) return;
+
+        const game = activeGames[gameRoomId];
+        if (game.duelState === 'ROUND_OVER') return; // Someone already shot
+
+        const isPlayer1 = game.player1.guestId === currentGuestId;
+        const opponentId = isPlayer1 ? game.player2.guestId : game.player1.guestId;
+
+        // FOUL: early shoot
+        if (game.duelState === 'STEADY') {
+          if (game.duelTimer) clearTimeout(game.duelTimer);
+          game.duelState = 'ROUND_OVER';
+
+          if (isPlayer1) {
+            game.p1ShotTime = -1;
+            game.p2DuelWins = (game.p2DuelWins || 0) + 1;
+            game.board[1] = String(game.p2DuelWins);
+          } else {
+            game.p2ShotTime = -1;
+            game.p1DuelWins = (game.p1DuelWins || 0) + 1;
+            game.board[0] = String(game.p1DuelWins);
+          }
+
+          const roundWinnerId = isPlayer1 ? game.player2.guestId : game.player1.guestId;
+          const roundWinnerName = isPlayer1 ? game.player2.nickname : game.player1.nickname;
+
+          const roundOverMsg = {
+            type: 'COWBOY_ROUND_OVER',
+            payload: {
+              winnerId: roundWinnerId,
+              winnerName: roundWinnerName,
+              foul: true,
+              foulPlayerName: isPlayer1 ? game.player1.nickname : game.player2.nickname,
+              p1ShotTime: game.p1ShotTime,
+              p2ShotTime: game.p2ShotTime,
+              scores: { p1Score: game.p1DuelWins, p2Score: game.p2DuelWins }
+            }
+          };
+
+          game.player1.ws.send(JSON.stringify(roundOverMsg));
+          game.player2.ws.send(JSON.stringify(roundOverMsg));
+
+          // Check overall winner (best of 3)
+          if (game.p1DuelWins === 2 || game.p2DuelWins === 2) {
+            const finalWinnerId = game.p1DuelWins === 2 ? game.player1.guestId : game.player2.guestId;
+            const finalWinnerName = game.p1DuelWins === 2 ? game.player1.nickname : game.player2.nickname;
+
+            setTimeout(() => {
+              const gameOverMsg = {
+                type: 'GAME_OVER',
+                payload: {
+                  board: game.board,
+                  winnerId: finalWinnerId,
+                  winnerName: finalWinnerName,
+                  draw: false
+                }
+              };
+              game.player1.ws.send(JSON.stringify(gameOverMsg));
+              game.player2.ws.send(JSON.stringify(gameOverMsg));
+              delete activeGames[gameRoomId];
+            }, 1500);
+          } else {
+            // Next round after 3 seconds
+            setTimeout(() => {
+              if (activeGames[gameRoomId]) {
+                const g = activeGames[gameRoomId];
+                g.duelRound = (g.duelRound || 1) + 1;
+                startCowboyRound(gameRoomId);
+                const nextMsg = {
+                  type: 'COWBOY_NEXT_ROUND',
+                  payload: { round: g.duelRound }
+                };
+                g.player1.ws.send(JSON.stringify(nextMsg));
+                g.player2.ws.send(JSON.stringify(nextMsg));
+              }
+            }, 3000);
+          }
+          return;
+        }
+
+        // LEGITIMATE SHOT
+        if (game.duelState === 'DRAW') {
+          const shotTime = Date.now() - (game.duelDrawTime || 0);
+
+          if (isPlayer1) {
+            game.p1ShotTime = shotTime;
+          } else {
+            game.p2ShotTime = shotTime;
+          }
+
+          // Since duelState wasn't ROUND_OVER, this is the first shot that hit!
+          game.duelState = 'ROUND_OVER';
+
+          if (isPlayer1) {
+            game.p1DuelWins = (game.p1DuelWins || 0) + 1;
+            game.board[0] = String(game.p1DuelWins);
+          } else {
+            game.p2DuelWins = (game.p2DuelWins || 0) + 1;
+            game.board[1] = String(game.p2DuelWins);
+          }
+
+          const roundOverMsg = {
+            type: 'COWBOY_ROUND_OVER',
+            payload: {
+              winnerId: currentGuestId,
+              winnerName: isPlayer1 ? game.player1.nickname : game.player2.nickname,
+              foul: false,
+              p1ShotTime: game.p1ShotTime,
+              p2ShotTime: game.p2ShotTime,
+              scores: { p1Score: game.p1DuelWins, p2Score: game.p2DuelWins }
+            }
+          };
+
+          game.player1.ws.send(JSON.stringify(roundOverMsg));
+          game.player2.ws.send(JSON.stringify(roundOverMsg));
+
+          // Check overall winner
+          if (game.p1DuelWins === 2 || game.p2DuelWins === 2) {
+            const finalWinnerId = game.p1DuelWins === 2 ? game.player1.guestId : game.player2.guestId;
+            const finalWinnerName = game.p1DuelWins === 2 ? game.player1.nickname : game.player2.nickname;
+
+            setTimeout(() => {
+              const gameOverMsg = {
+                type: 'GAME_OVER',
+                payload: {
+                  board: game.board,
+                  winnerId: finalWinnerId,
+                  winnerName: finalWinnerName,
+                  draw: false
+                }
+              };
+              game.player1.ws.send(JSON.stringify(gameOverMsg));
+              game.player2.ws.send(JSON.stringify(gameOverMsg));
+              delete activeGames[gameRoomId];
+            }, 1500);
+          } else {
+            setTimeout(() => {
+              if (activeGames[gameRoomId]) {
+                const g = activeGames[gameRoomId];
+                g.duelRound = (g.duelRound || 1) + 1;
+                startCowboyRound(gameRoomId);
+                const nextMsg = {
+                  type: 'COWBOY_NEXT_ROUND',
+                  payload: { round: g.duelRound }
+                };
+                g.player1.ws.send(JSON.stringify(nextMsg));
+                g.player2.ws.send(JSON.stringify(nextMsg));
+              }
+            }, 3000);
+          }
+        }
+      }
+
     } catch (err) {
       console.error('WS Guest Error:', err);
       ws.send(JSON.stringify({ type: 'ERROR', payload: 'Invalid message' }));
@@ -824,6 +1027,7 @@ export function handleGuestConnection(ws: WebSocket) {
       for (const roomId in activeGames) {
         const game = activeGames[roomId];
         if (game.player1.guestId === currentGuestId || game.player2.guestId === currentGuestId) {
+          if (game.duelTimer) clearTimeout(game.duelTimer);
           const opponentWs = game.player1.guestId === currentGuestId ? game.player2.ws : game.player1.ws;
           opponentWs.send(JSON.stringify({
             type: 'GAME_OVER',

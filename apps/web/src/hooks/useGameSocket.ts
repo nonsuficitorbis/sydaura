@@ -12,7 +12,7 @@ interface Question {
 
 interface ActiveGame {
   gameRoomId: string;
-  gameType: 'TIC_TAC_TOE' | 'CONNECT_4' | 'DOTS_AND_BOXES' | 'BATTLESHIP' | 'WORD_HUNT';
+  gameType: 'TIC_TAC_TOE' | 'CONNECT_4' | 'DOTS_AND_BOXES' | 'BATTLESHIP' | 'WORD_HUNT' | 'COWBOY_DUEL';
   opponentNickname: string;
   symbol: 'X' | 'O' | 'R' | 'Y' | string;
   myTurn: boolean;
@@ -39,10 +39,21 @@ export function useGameSocket() {
   const [myGuestId, setMyGuestId] = useState<string | null>(null);
   
   // 2-Player Game states
-  const [incomingChallenge, setIncomingChallenge] = useState<{ challengerId: string; challengerNickname: string; gameType: 'TIC_TAC_TOE' | 'CONNECT_4' | 'DOTS_AND_BOXES' | 'BATTLESHIP' | 'WORD_HUNT' } | null>(null);
+  const [incomingChallenge, setIncomingChallenge] = useState<{ challengerId: string; challengerNickname: string; gameType: 'TIC_TAC_TOE' | 'CONNECT_4' | 'DOTS_AND_BOXES' | 'BATTLESHIP' | 'WORD_HUNT' | 'COWBOY_DUEL' } | null>(null);
   const [activeGame, setActiveGame] = useState<ActiveGame | null>(null);
   const [battleshipState, setBattleshipState] = useState<{ placementDone: boolean; p1Placed: boolean; p2Placed: boolean }>({ placementDone: false, p1Placed: false, p2Placed: false });
   const [wordHuntState, setWordHuntState] = useState<{ p1Score: number; p2Score: number; p1Words: string[]; p2Words: string[] }>({ p1Score: 0, p2Score: 0, p1Words: [], p2Words: [] });
+  const [duelState, setDuelState] = useState<'STEADY' | 'DRAW' | 'ROUND_OVER' | null>(null);
+  const [duelRound, setDuelRound] = useState<number>(1);
+  const [duelResults, setDuelResults] = useState<{
+    winnerId: string | null;
+    winnerName: string | null;
+    foul: boolean;
+    foulPlayerName?: string;
+    p1ShotTime?: number;
+    p2ShotTime?: number;
+    scores: { p1Score: number; p2Score: number };
+  } | null>(null);
 
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -104,6 +115,9 @@ export function useGameSocket() {
           setIncomingChallenge(null);
           setBattleshipState({ placementDone: false, p1Placed: false, p2Placed: false });
           setWordHuntState({ p1Score: 0, p2Score: 0, p1Words: [], p2Words: [] });
+          setDuelState('STEADY');
+          setDuelRound(1);
+          setDuelResults(null);
           setActiveGame({
             gameRoomId: data.payload.gameRoomId,
             gameType: data.payload.gameType,
@@ -132,6 +146,15 @@ export function useGameSocket() {
           });
         } else if (data.type === 'WORD_HUNT_UPDATE') {
           setWordHuntState(data.payload);
+        } else if (data.type === 'COWBOY_DRAW_SIGNAL') {
+          setDuelState('DRAW');
+        } else if (data.type === 'COWBOY_ROUND_OVER') {
+          setDuelState('ROUND_OVER');
+          setDuelResults(data.payload);
+        } else if (data.type === 'COWBOY_NEXT_ROUND') {
+          setDuelState('STEADY');
+          setDuelRound(data.payload.round);
+          setDuelResults(null);
         } else if (data.type === 'GAME_OVER') {
           if (data.payload.scores) {
             setWordHuntState({
@@ -182,7 +205,7 @@ export function useGameSocket() {
 
   // --- 2-Player Game Helpers ---
 
-  const sendChallenge = (targetGuestId: string, gameType: 'TIC_TAC_TOE' | 'CONNECT_4' | 'DOTS_AND_BOXES' | 'BATTLESHIP' | 'WORD_HUNT') => {
+  const sendChallenge = (targetGuestId: string, gameType: 'TIC_TAC_TOE' | 'CONNECT_4' | 'DOTS_AND_BOXES' | 'BATTLESHIP' | 'WORD_HUNT' | 'COWBOY_DUEL') => {
     if (ws.current?.readyState === WebSocket.OPEN) {
       ws.current.send(JSON.stringify({
         type: 'SEND_CHALLENGE',
@@ -191,7 +214,7 @@ export function useGameSocket() {
     }
   };
 
-  const respondToChallenge = (challengerId: string, accepted: boolean, gameType?: 'TIC_TAC_TOE' | 'CONNECT_4' | 'DOTS_AND_BOXES' | 'BATTLESHIP' | 'WORD_HUNT') => {
+  const respondToChallenge = (challengerId: string, accepted: boolean, gameType?: 'TIC_TAC_TOE' | 'CONNECT_4' | 'DOTS_AND_BOXES' | 'BATTLESHIP' | 'WORD_HUNT' | 'COWBOY_DUEL') => {
     setIncomingChallenge(null);
     if (ws.current?.readyState === WebSocket.OPEN) {
       ws.current.send(JSON.stringify({
@@ -255,6 +278,15 @@ export function useGameSocket() {
     }
   };
 
+  const shootQuickDraw = (gameRoomId: string) => {
+    if (ws.current?.readyState === WebSocket.OPEN) {
+      ws.current.send(JSON.stringify({
+        type: 'COWBOY_DUEL_SHOOT',
+        payload: { gameRoomId }
+      }));
+    }
+  };
+
   const closeGame = () => {
     setActiveGame(null);
   };
@@ -280,6 +312,9 @@ export function useGameSocket() {
     activeGame,
     battleshipState,
     wordHuntState,
+    duelState,
+    duelRound,
+    duelResults,
     myGuestId,
     joinSession,
     joinCasual,
@@ -292,6 +327,7 @@ export function useGameSocket() {
     placeBattleshipShips,
     strikeBattleshipCoordinate,
     submitWordHuntWord,
+    shootQuickDraw,
     closeGame,
   };
 }

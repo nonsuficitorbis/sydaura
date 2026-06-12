@@ -5,6 +5,7 @@ import { ConnectFour } from '../../components/games/ConnectFour';
 import { DotsAndBoxes } from '../../components/games/DotsAndBoxes';
 import { Battleship } from '../../components/games/Battleship';
 import { WordHunt } from '../../components/games/WordHunt';
+import { CowboyDuel } from '../../components/games/CowboyDuel';
 
 interface CasualLobbyProps {
   locationId: string;
@@ -22,6 +23,9 @@ export const CasualLobby: React.FC<CasualLobbyProps> = ({ locationId, onBack }) 
     activeGame,
     battleshipState,
     wordHuntState,
+    duelState,
+    duelRound,
+    duelResults,
     joinCasual,
     sendChallenge,
     respondToChallenge,
@@ -31,6 +35,7 @@ export const CasualLobby: React.FC<CasualLobbyProps> = ({ locationId, onBack }) 
     placeBattleshipShips,
     strikeBattleshipCoordinate,
     submitWordHuntWord,
+    shootQuickDraw,
     closeGame,
   } = useGameSocket();
 
@@ -46,12 +51,13 @@ export const CasualLobby: React.FC<CasualLobbyProps> = ({ locationId, onBack }) 
       case 'DOTS_AND_BOXES': return 'Dots & Boxes';
       case 'BATTLESHIP': return 'Battleship';
       case 'WORD_HUNT': return 'Word Hunt';
+      case 'COWBOY_DUEL': return 'Quick Draw 🤠';
       default: return 'Tic-Tac-Toe';
     }
   };
 
   return (
-    <div className="glass-card page-enter" style={{ maxWidth: '600px', margin: '2rem auto' }}>
+    <div className="glass-card page-enter" style={{ maxWidth: '650px', margin: '2rem auto' }}>
       
       {/* Back button */}
       <button 
@@ -165,6 +171,13 @@ export const CasualLobby: React.FC<CasualLobbyProps> = ({ locationId, onBack }) 
                         >
                           Word Hunt 🔠
                         </button>
+                        <button 
+                          className="btn-primary" 
+                          style={{ padding: '0.4rem 0.6rem', fontSize: '0.75rem' }}
+                          onClick={() => sendChallenge(p.guestId, 'COWBOY_DUEL')}
+                        >
+                          Quick Draw 🤠
+                        </button>
                       </div>
                     )}
                   </div>
@@ -248,6 +261,20 @@ export const CasualLobby: React.FC<CasualLobbyProps> = ({ locationId, onBack }) 
               isPlayer1={activeGame.isPlayer1}
               myGuestId={myGuestId}
               onSubmitWord={(word) => submitWordHuntWord(activeGame.gameRoomId, word)}
+              onClose={closeGame}
+            />
+          )}
+
+          {activeGame && activeGame.gameType === 'COWBOY_DUEL' && (
+            <CowboyDuel
+              opponentNickname={activeGame.opponentNickname}
+              myTurn={activeGame.myTurn}
+              gameOver={activeGame.gameOver}
+              duelState={duelState}
+              duelRound={duelRound}
+              duelResults={duelResults}
+              isPlayer1={activeGame.isPlayer1}
+              onShoot={() => shootQuickDraw(activeGame.gameRoomId)}
               onClose={closeGame}
             />
           )}
