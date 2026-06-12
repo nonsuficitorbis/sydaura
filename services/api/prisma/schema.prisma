@@ -1,0 +1,113 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Account {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  createdAt DateTime @default(now())
+  venues    Venue[]
+}
+
+model Venue {
+  id        String   @id @default(uuid())
+  name      String
+  accountId String
+  account   Account  @relation(fields: [accountId], references: [id])
+  locations VenueLocation[]
+}
+
+model VenueLocation {
+  id        String   @id @default(uuid())
+  name      String
+  venueId   String
+  venue     Venue    @relation(fields: [venueId], references: [id])
+  placements Placement[]
+  sessions  Session[]
+}
+
+model Placement {
+  id              String   @id @default(uuid())
+  name            String   // e.g. "Table 1" or "Bar Seat 4"
+  venueLocationId String
+  location        VenueLocation @relation(fields: [venueLocationId], references: [id])
+  qrCodes         QrCode[]
+  guestSessions   GuestSession[]
+}
+
+model QrCode {
+  id          String   @id @default(uuid())
+  token       String   @unique // e.g. /join/:qrToken
+  placementId String
+  placement   Placement @relation(fields: [placementId], references: [id])
+}
+
+model Session {
+  id              String   @id @default(uuid())
+  status          String   @default("active") // "active", "ended", "scheduled"
+  prizeType       String?  // "appetizer", "dessert", etc
+  createdAt       DateTime @default(now())
+  venueLocationId String
+  location        VenueLocation @relation(fields: [venueLocationId], references: [id])
+  guestSessions   GuestSession[]
+}
+
+model GuestSession {
+  id          String   @id @default(uuid())
+  nickname    String?
+  deviceHash  String?
+  joinedAt    DateTime @default(now())
+  lastSeenAt  DateTime @default(now())
+  sessionId   String
+  session     Session  @relation(fields: [sessionId], references: [id])
+  placementId String
+  placement   Placement @relation(fields: [placementId], references: [id])
+  responses   Response[]
+}
+
+model QuestionPack {
+  id        String   @id @default(uuid())
+  name      String
+  questions Question[]
+}
+
+model Question {
+  id             String   @id @default(uuid())
+  text           String
+  options        String[] // PostgreSQL String array support
+  correctOption  String?
+  questionPackId String
+  questionPack   QuestionPack @relation(fields: [questionPackId], references: [id])
+  responses      Response[]
+}
+
+model Response {
+  id             String   @id @default(uuid())
+  answer         String
+  isCorrect      Boolean?
+  guestSessionId String
+  guestSession   GuestSession @relation(fields: [guestSessionId], references: [id])
+  questionId     String
+  question       Question @relation(fields: [questionId], references: [id])
+}
+
+model Referral {
+  id           String   @id @default(uuid())
+  guestName    String?
+  venueName    String
+  city         String
+  ownerContact String
+  status       String   @default("pending") // "pending", "qualified", "paid"
+}
+
+model AnalyticsEvent {
+  id        String   @id @default(uuid())
+  eventName String   // e.g. "qr_scanned", "join_completed"
+  payload   Json?
+  createdAt DateTime @default(now())
+}

@@ -1,0 +1,15 @@
+{
+  "name": "sydaura-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "services/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "start:api": "npm run start --workspace=services/api",
+    "dev:api": "npm run dev --workspace=services/api",
+    "dev:web": "npm run dev --workspace=apps/web"
+  }
+}
