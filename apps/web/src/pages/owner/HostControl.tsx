@@ -41,7 +41,7 @@ export const HostControl = () => {
         setPacks(data);
         if (data.length > 0) setSelectedPackId(data[0].id);
       })
-      .catch((err) => setError('Failed to load trivia packs'));
+      .catch(() => setError('Failed to load trivia packs'));
 
     // 2. Connect Host WebSocket
     const ws = new WebSocket(`${wsProtocol}//${wsHost}/owner?sessionId=${sessionId}`);
