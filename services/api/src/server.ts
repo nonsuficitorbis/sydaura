@@ -19,6 +19,7 @@ app.get('/health', (req: Request, res: Response) => {
 const v1Router = express.Router();
 import guestRoutes from './routes/guest.routes';
 import ownerRoutes from './routes/owner.routes';
+import profileRoutes from './routes/profile.routes';
 
 v1Router.get('/status', (req, res) => {
   res.json({ message: 'v1 API is running' });
@@ -26,6 +27,7 @@ v1Router.get('/status', (req, res) => {
 
 v1Router.use('/guest', guestRoutes);
 v1Router.use('/owner', ownerRoutes);
+v1Router.use('/profile', profileRoutes);
 
 app.use('/api/v1', v1Router);
 

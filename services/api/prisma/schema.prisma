@@ -20,6 +20,7 @@ model Venue {
   accountId String
   account   Account  @relation(fields: [accountId], references: [id])
   locations VenueLocation[]
+  visits    GuestVisit[]
 }
 
 model VenueLocation {
@@ -110,4 +111,23 @@ model AnalyticsEvent {
   eventName String   // e.g. "qr_scanned", "join_completed"
   payload   Json?
   createdAt DateTime @default(now())
+}
+
+model GuestProfile {
+  deviceHash   String       @id
+  nickname     String?
+  streakCount  Int          @default(0)
+  lastActiveAt DateTime     @default(now())
+  createdAt    DateTime     @default(now())
+  visits       GuestVisit[]
+  badges       String[]     @default([])
+}
+
+model GuestVisit {
+  id           String       @id @default(uuid())
+  deviceHash   String
+  guestProfile GuestProfile @relation(fields: [deviceHash], references: [deviceHash])
+  venueId      String
+  venue        Venue        @relation(fields: [venueId], references: [id])
+  visitedAt    DateTime     @default(now())
 }

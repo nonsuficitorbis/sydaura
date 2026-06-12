@@ -19,6 +19,8 @@ export const JoinSession = () => {
   // Navigation View State
   const [viewState, setViewState] = useState<'HUB' | 'TRIVIA' | 'CASUAL'>('HUB');
 
+  const [lboardTab, setLboardTab] = useState<'INDIVIDUAL' | 'TEAM'>('INDIVIDUAL');
+
   const { 
     gameState, 
     joinSession, 
@@ -27,7 +29,8 @@ export const JoinSession = () => {
     currentQuestion, 
     selectedAnswer, 
     correctAnswer, 
-    lastFeedback 
+    lastFeedback,
+    leaderboard
   } = useGameSocket();
 
   useEffect(() => {
@@ -235,6 +238,46 @@ export const JoinSession = () => {
                 </div>
               )}
 
+              {leaderboard && (
+                <div style={{ marginTop: '1.5rem', borderTop: '1px solid var(--border-subtle)', paddingTop: '1rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                    <h4 style={{ margin: 0 }}>🏆 Live Standings</h4>
+                    <div style={{ display: 'flex', gap: '0.25rem', background: 'rgba(255,255,255,0.03)', padding: '0.2rem', borderRadius: '20px', border: '1px solid var(--border-subtle)' }}>
+                      <button 
+                        style={{ background: lboardTab === 'INDIVIDUAL' ? 'var(--accent-primary)' : 'none', border: 'none', color: '#fff', fontSize: '0.7rem', padding: '0.25rem 0.6rem', borderRadius: '15px', cursor: 'pointer' }}
+                        onClick={() => setLboardTab('INDIVIDUAL')}
+                      >
+                        Players
+                      </button>
+                      <button 
+                        style={{ background: lboardTab === 'TEAM' ? 'var(--accent-primary)' : 'none', border: 'none', color: '#fff', fontSize: '0.7rem', padding: '0.25rem 0.6rem', borderRadius: '15px', cursor: 'pointer' }}
+                        onClick={() => setLboardTab('TEAM')}
+                      >
+                        Table Teams
+                      </button>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    {lboardTab === 'INDIVIDUAL' ? (
+                      leaderboard.individual.slice(0, 5).map((player, idx) => (
+                        <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.5rem 0.75rem', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-subtle)', borderRadius: '8px', fontSize: '0.85rem' }}>
+                          <span>#{idx + 1} {player.nickname} <span className="text-muted">({player.placementName})</span></span>
+                          <span style={{ fontWeight: 'bold', color: 'var(--accent-primary)' }}>{player.score} pts</span>
+                        </div>
+                      ))
+                    ) : (
+                      leaderboard.teams.slice(0, 5).map((team, idx) => (
+                        <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.5rem 0.75rem', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-subtle)', borderRadius: '8px', fontSize: '0.85rem' }}>
+                          <span>#{idx + 1} {team.placementName} <span className="text-muted">({team.playerCount} players)</span></span>
+                          <span style={{ fontWeight: 'bold', color: 'var(--accent-primary)' }}>{team.score} avg pts</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+
             </div>
           ) : (
             <div style={{ textAlign: 'center', padding: '2rem' }}>
@@ -245,13 +288,53 @@ export const JoinSession = () => {
       );
     }
 
-    // Sub-view: Trivia finished
     return (
       <div className="glass-card page-enter" style={{ textAlign: 'center', maxWidth: '500px', margin: '2rem auto' }}>
         <h2 className="text-gradient">Thanks for playing!</h2>
         <p className="text-secondary" style={{ marginTop: '0.5rem', marginBottom: '2rem' }}>
-          The session has concluded. Check the main screen for the final standings and prize claims.
+          The session has concluded. Check the final standings and prize claims below.
         </p>
+
+        {leaderboard && (
+          <div style={{ textAlign: 'left', marginBottom: '2rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ margin: 0 }}>🏆 Final Standings</h3>
+              <div style={{ display: 'flex', gap: '0.25rem', background: 'rgba(255,255,255,0.03)', padding: '0.2rem', borderRadius: '20px', border: '1px solid var(--border-subtle)' }}>
+                <button 
+                  style={{ background: lboardTab === 'INDIVIDUAL' ? 'var(--accent-primary)' : 'none', border: 'none', color: '#fff', fontSize: '0.7rem', padding: '0.25rem 0.6rem', borderRadius: '15px', cursor: 'pointer' }}
+                  onClick={() => setLboardTab('INDIVIDUAL')}
+                >
+                  Players
+                </button>
+                <button 
+                  style={{ background: lboardTab === 'TEAM' ? 'var(--accent-primary)' : 'none', border: 'none', color: '#fff', fontSize: '0.7rem', padding: '0.25rem 0.6rem', borderRadius: '15px', cursor: 'pointer' }}
+                  onClick={() => setLboardTab('TEAM')}
+                >
+                  Table Teams
+                </button>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              {lboardTab === 'INDIVIDUAL' ? (
+                leaderboard.individual.slice(0, 5).map((player, idx) => (
+                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.5rem 0.75rem', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-subtle)', borderRadius: '8px', fontSize: '0.85rem' }}>
+                    <span>#{idx + 1} {player.nickname} <span className="text-muted">({player.placementName})</span></span>
+                    <span style={{ fontWeight: 'bold', color: 'var(--accent-primary)' }}>{player.score} pts</span>
+                  </div>
+                ))
+              ) : (
+                leaderboard.teams.slice(0, 5).map((team, idx) => (
+                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.5rem 0.75rem', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-subtle)', borderRadius: '8px', fontSize: '0.85rem' }}>
+                    <span>#{idx + 1} {team.placementName} <span className="text-muted">({team.playerCount} players)</span></span>
+                    <span style={{ fontWeight: 'bold', color: 'var(--accent-primary)' }}>{team.score} avg pts</span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+
         <div style={{ padding: '1.25rem', background: 'rgba(9, 121, 105, 0.1)', border: '1px solid rgba(9, 121, 105, 0.3)', borderRadius: '16px' }}>
           <h4 style={{ margin: 0, color: 'var(--accent-primary)' }}>Prize Claims</h4>
           <p className="text-secondary" style={{ fontSize: '0.9rem', marginTop: '0.5rem' }}>

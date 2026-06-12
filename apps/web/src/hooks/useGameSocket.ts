@@ -65,6 +65,11 @@ export function useGameSocket() {
     scores: { p1Score: number; p2Score: number };
   } | null>(null);
 
+  const [leaderboard, setLeaderboard] = useState<{
+    individual: { guestId: string; nickname: string; placementName: string; score: number }[];
+    teams: { placementId: string; placementName: string; totalScore: number; playerCount: number; score: number }[];
+  } | null>(null);
+
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.hostname === 'localhost' ? 'localhost:3001' : window.location.host;
@@ -100,6 +105,7 @@ export function useGameSocket() {
           setSelectedAnswer(null);
           setCorrectAnswer(null);
           setLastFeedback(null);
+          setLeaderboard(null);
         } else if (data.type === 'NEXT_QUESTION') {
           setGameState('PLAYING');
           setCurrentQuestion(data.payload);
@@ -111,9 +117,15 @@ export function useGameSocket() {
           setLastFeedback(data.payload.isCorrect ? 'CORRECT' : 'INCORRECT');
         } else if (data.type === 'ANSWER_REVEALED') {
           setCorrectAnswer(data.payload.correctOption);
+          if (data.payload.leaderboard) {
+            setLeaderboard(data.payload.leaderboard);
+          }
         } else if (data.type === 'GAME_ENDED') {
           setGameState('ENDED');
           setCurrentQuestion(null);
+          if (data.payload?.leaderboard) {
+            setLeaderboard(data.payload.leaderboard);
+          }
         }
         
         // --- 2-PLAYER EVENTS ---
@@ -209,10 +221,15 @@ export function useGameSocket() {
   }, []);
 
   const joinSession = (sessionId: string, placementId: string, nickname: string) => {
+    let deviceHash = localStorage.getItem('sydaura_device_hash');
+    if (!deviceHash) {
+      deviceHash = 'dev-' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+      localStorage.setItem('sydaura_device_hash', deviceHash);
+    }
     if (ws.current?.readyState === WebSocket.OPEN) {
       ws.current.send(JSON.stringify({
         type: 'JOIN_SESSION',
-        payload: { sessionId, placementId, nickname }
+        payload: { sessionId, placementId, nickname, deviceHash }
       }));
     }
   };
@@ -334,10 +351,15 @@ export function useGameSocket() {
   };
 
   const joinCasual = (locationId: string, nickname: string) => {
+    let deviceHash = localStorage.getItem('sydaura_device_hash');
+    if (!deviceHash) {
+      deviceHash = 'dev-' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+      localStorage.setItem('sydaura_device_hash', deviceHash);
+    }
     if (ws.current?.readyState === WebSocket.OPEN) {
       ws.current.send(JSON.stringify({
         type: 'JOIN_CASUAL',
-        payload: { locationId, nickname }
+        payload: { locationId, nickname, deviceHash }
       }));
     }
   };
@@ -361,6 +383,7 @@ export function useGameSocket() {
     rpsChoiceConfirmed,
     rpsRoundResults,
     myGuestId,
+    leaderboard,
     joinSession,
     joinCasual,
     submitAnswer,

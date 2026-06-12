@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Passport } from '../../components/profile/Passport';
 
 interface SessionData {
   placement: { id: string; name: string };
@@ -13,6 +14,7 @@ interface GuestHubProps {
 
 export const GuestHub: React.FC<GuestHubProps> = ({ sessionData, onSelectOption }) => {
   const [showReferralModal, setShowReferralModal] = useState(false);
+  const [showPassport, setShowPassport] = useState(false);
   const [refVenueName, setRefVenueName] = useState('');
   const [refCity, setRefCity] = useState('');
   const [refOwnerContact, setRefOwnerContact] = useState('');
@@ -120,11 +122,15 @@ export const GuestHub: React.FC<GuestHubProps> = ({ sessionData, onSelectOption 
           </p>
         </div>
 
-        {/* Passport / Stamp card (Phase 2 Preview) */}
-        <div className="glass-card" style={{ opacity: 0.6 }}>
-          <h3 style={{ margin: 0 }}>🎫 My Passport (Coming Soon)</h3>
+        {/* Passport / Stamp card */}
+        <div 
+          className="glass-card hover-lift" 
+          onClick={() => setShowPassport(true)}
+          style={{ cursor: 'pointer', border: '1px solid var(--accent-primary)', background: 'rgba(16, 185, 129, 0.03)' }}
+        >
+          <h3 style={{ margin: 0 }}>🎫 My Passport</h3>
           <p className="text-secondary" style={{ margin: '0.5rem 0 0 0', fontSize: '0.9rem' }}>
-            Earn stamps by visiting local venues and claim free appetizers!
+            Earn stamps by visiting local venues, track streaks, and unlock achievements!
           </p>
         </div>
 
@@ -208,6 +214,9 @@ export const GuestHub: React.FC<GuestHubProps> = ({ sessionData, onSelectOption 
             </form>
           </div>
         </div>
+      )}
+      {showPassport && (
+        <Passport onClose={() => setShowPassport(false)} />
       )}
 
     </div>

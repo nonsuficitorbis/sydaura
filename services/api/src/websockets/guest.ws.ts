@@ -47,6 +47,159 @@ const sessions: Record<string, SessionState> = {};
 const guestSockets: Record<string, { ws: WebSocket; nickname: string; sessionId: string }> = {};
 const activeGames: Record<string, CasualGame> = {};
 
+async function recordProfileAndVisit(deviceHash: string, nickname: string, venueId: string | null) {
+  try {
+    const now = new Date();
+    let profile = await prisma.guestProfile.findUnique({
+      where: { deviceHash },
+    });
+
+    if (!profile) {
+      profile = await prisma.guestProfile.create({
+        data: {
+          deviceHash,
+          nickname: nickname || 'Anonymous',
+          streakCount: 1,
+          lastActiveAt: now,
+          badges: ['FIRST_STEPS'],
+        },
+      });
+    } else {
+      // Calculate streak
+      const diffTime = Math.abs(now.getTime() - profile.lastActiveAt.getTime());
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      
+      let newStreak = profile.streakCount;
+      if (diffDays <= 7) {
+        const wasSameDay = now.toDateString() === profile.lastActiveAt.toDateString();
+        if (!wasSameDay) {
+          newStreak += 1;
+        }
+      } else {
+        newStreak = 1;
+      }
+
+      // Check EXPLORER badge
+      const uniqueVisits = await prisma.guestVisit.groupBy({
+        by: ['venueId'],
+        where: { deviceHash },
+      });
+
+      const updatedBadges = [...profile.badges];
+      if (uniqueVisits.length >= 2 && !updatedBadges.includes('EXPLORER')) {
+        updatedBadges.push('EXPLORER');
+      }
+
+      profile = await prisma.guestProfile.update({
+        where: { deviceHash },
+        data: {
+          nickname: nickname || profile.nickname,
+          streakCount: newStreak,
+          lastActiveAt: now,
+          badges: updatedBadges,
+        },
+      });
+    }
+
+    if (venueId) {
+      const startOfDay = new Date();
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date();
+      endOfDay.setHours(23, 59, 59, 999);
+
+      const existingVisit = await prisma.guestVisit.findFirst({
+        where: {
+          deviceHash,
+          venueId,
+          visitedAt: {
+            gte: startOfDay,
+            lte: endOfDay,
+          },
+        },
+      });
+
+      if (!existingVisit) {
+        await prisma.guestVisit.create({
+          data: {
+            deviceHash,
+            venueId,
+          },
+        });
+
+        const visitsCount = await prisma.guestVisit.count({
+          where: { deviceHash, venueId },
+        });
+
+        if (visitsCount >= 3 && !profile.badges.includes('LOYALIST')) {
+          await prisma.guestProfile.update({
+            where: { deviceHash },
+            data: {
+              badges: {
+                push: 'LOYALIST',
+              },
+            },
+          });
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Error in recordProfileAndVisit:', error);
+  }
+}
+
+async function getLeaderboard(sessionId: string) {
+  try {
+    const guestSessions = await prisma.guestSession.findMany({
+      where: { sessionId },
+      include: {
+        responses: true,
+        placement: true,
+      },
+    });
+
+    const individual = guestSessions.map((gs) => {
+      const score = gs.responses.filter((r) => r.isCorrect).length;
+      return {
+        guestId: gs.id,
+        nickname: gs.nickname || 'Anonymous',
+        placementName: gs.placement.name,
+        score,
+      };
+    }).sort((a, b) => b.score - a.score);
+
+    const placementGroups: Record<string, { placementName: string; totalScore: number; playerCount: number }> = {};
+    for (const gs of guestSessions) {
+      const score = gs.responses.filter((r) => r.isCorrect).length;
+      const pId = gs.placementId;
+      const pName = gs.placement.name;
+
+      if (!placementGroups[pId]) {
+        placementGroups[pId] = { placementName: pName, totalScore: 0, playerCount: 0 };
+      }
+      const g = placementGroups[pId]!;
+      g.totalScore += score;
+      g.playerCount += 1;
+    }
+
+    const teams = Object.keys(placementGroups).map((pId) => {
+      const group = placementGroups[pId]!;
+      const averageScore = Number((group.totalScore / group.playerCount).toFixed(1));
+      return {
+        placementId: pId,
+        placementName: group.placementName,
+        totalScore: group.totalScore,
+        playerCount: group.playerCount,
+        score: averageScore,
+      };
+    }).sort((a, b) => b.score - a.score);
+
+    return { individual, teams };
+  } catch (error) {
+    console.error('Error in getLeaderboard:', error);
+    return { individual: [], teams: [] };
+  }
+}
+
 function getOrCreateSession(sessionId: string): SessionState {
   if (!sessions[sessionId]) {
     sessions[sessionId] = {
@@ -177,18 +330,28 @@ export function handleGuestConnection(ws: WebSocket) {
       const data = JSON.parse(message.toString());
 
       if (data.type === 'JOIN_SESSION') {
-        const { sessionId, placementId, nickname } = data.payload;
+        const { sessionId, placementId, nickname, deviceHash } = data.payload;
 
         const guestSession = await prisma.guestSession.create({
           data: {
             sessionId,
             placementId,
             nickname: nickname || 'Anonymous',
+            deviceHash,
           },
         });
 
         currentSessionId = sessionId;
         currentGuestId = guestSession.id;
+
+        if (deviceHash) {
+          const sessionEntity = await prisma.session.findUnique({
+            where: { id: sessionId },
+            include: { location: true },
+          });
+          const venueId = sessionEntity?.location.venueId || null;
+          recordProfileAndVisit(deviceHash, nickname || 'Anonymous', venueId);
+        }
 
         guestSockets[guestSession.id] = {
           ws,
@@ -234,12 +397,20 @@ export function handleGuestConnection(ws: WebSocket) {
       }
 
       if (data.type === 'JOIN_CASUAL') {
-        const { locationId, nickname } = data.payload;
+        const { locationId, nickname, deviceHash } = data.payload;
         const casualRoomId = `casual-${locationId}`;
 
         const guestId = `guest-${Math.random().toString(36).substring(2, 11)}`;
         currentGuestId = guestId;
         currentSessionId = casualRoomId;
+
+        if (deviceHash) {
+          const loc = await prisma.venueLocation.findUnique({
+            where: { id: locationId },
+          });
+          const venueId = loc?.venueId || null;
+          recordProfileAndVisit(deviceHash, nickname || 'Anonymous', venueId);
+        }
 
         guestSockets[guestId] = {
           ws,
@@ -1283,7 +1454,11 @@ export function handleOwnerConnection(ws: WebSocket, reqUrl: string) {
 
         const nextIndex = sessionState.currentQuestionIndex + 1;
         if (nextIndex >= sessionState.questions.length) {
-          broadcastToRoom(sessionId, { type: 'GAME_ENDED' });
+          const leaderboardData = await getLeaderboard(sessionId);
+          broadcastToRoom(sessionId, {
+            type: 'GAME_ENDED',
+            payload: { leaderboard: leaderboardData }
+          });
           sessionState.questions = [];
           sessionState.currentQuestionIndex = -1;
         } else {
@@ -1310,17 +1485,24 @@ export function handleOwnerConnection(ws: WebSocket, reqUrl: string) {
         const currentQuestion = sessionState.questions[sessionState.currentQuestionIndex];
         sessionState.isAnswerRevealed = true;
 
+        const leaderboardData = await getLeaderboard(sessionId);
+
         broadcastToRoom(sessionId, {
           type: 'ANSWER_REVEALED',
           payload: {
             questionId: currentQuestion.id,
             correctOption: currentQuestion.correctOption,
+            leaderboard: leaderboardData,
           }
         });
       }
 
       if (data.type === 'END_GAME') {
-        broadcastToRoom(sessionId, { type: 'GAME_ENDED' });
+        const leaderboardData = await getLeaderboard(sessionId);
+        broadcastToRoom(sessionId, {
+          type: 'GAME_ENDED',
+          payload: { leaderboard: leaderboardData }
+        });
         sessionState.questions = [];
         sessionState.currentQuestionIndex = -1;
       }
