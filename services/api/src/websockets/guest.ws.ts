@@ -12,11 +12,21 @@ interface SessionState {
 
 interface CasualGame {
   gameRoomId: string;
-  gameType: 'TIC_TAC_TOE' | 'CONNECT_4';
+  gameType: 'TIC_TAC_TOE' | 'CONNECT_4' | 'DOTS_AND_BOXES' | 'BATTLESHIP' | 'WORD_HUNT';
   player1: { guestId: string; ws: WebSocket; nickname: string; symbol: string };
   player2: { guestId: string; ws: WebSocket; nickname: string; symbol: string };
   board: (string | null)[];
   currentTurn: string; // guestId
+  p1ShipsPlaced?: boolean;
+  p2ShipsPlaced?: boolean;
+  p1Ships?: number[];
+  p2Ships?: number[];
+  p1Strikes?: number[];
+  p2Strikes?: number[];
+  p1Score?: number;
+  p2Score?: number;
+  p1Words?: string[];
+  p2Words?: string[];
 }
 
 const sessions: Record<string, SessionState> = {};
@@ -277,16 +287,89 @@ export function handleGuestConnection(ws: WebSocket) {
         if (accepted) {
           const gameRoomId = `game-${challengerId}-${currentGuestId}`;
           const gType = gameType || 'TIC_TAC_TOE';
-          const isC4 = gType === 'CONNECT_4';
+          
+          let p1Symbol = 'X';
+          let p2Symbol = 'O';
+          let boardSize = 9;
+
+          if (gType === 'CONNECT_4') {
+            p1Symbol = 'R';
+            p2Symbol = 'Y';
+            boardSize = 42;
+          } else if (gType === 'DOTS_AND_BOXES') {
+            p1Symbol = 'R';
+            p2Symbol = 'Y';
+            boardSize = 56;
+          } else if (gType === 'BATTLESHIP') {
+            p1Symbol = 'B';
+            p2Symbol = 'B';
+            boardSize = 72;
+          } else if (gType === 'WORD_HUNT') {
+            p1Symbol = 'W';
+            p2Symbol = 'W';
+            boardSize = 16;
+          }
+
+          const boardArray = Array(boardSize).fill(null);
+          if (gType === 'WORD_HUNT') {
+            const vowels = 'AEIOU';
+            const consonants = 'BCDFGHJKLMNPQRSTVWXYZ';
+            for (let i = 0; i < 16; i++) {
+              const letters = (i % 3 === 0) ? vowels : consonants;
+              boardArray[i] = letters[Math.floor(Math.random() * letters.length)];
+            }
+          }
 
           activeGames[gameRoomId] = {
             gameRoomId,
             gameType: gType,
-            player1: { guestId: challengerId, ws: challenger.ws, nickname: challenger.nickname, symbol: isC4 ? 'R' : 'X' },
-            player2: { guestId: currentGuestId, ws: responder.ws, nickname: responder.nickname, symbol: isC4 ? 'Y' : 'O' },
-            board: Array(isC4 ? 42 : 9).fill(null),
+            player1: { guestId: challengerId, ws: challenger.ws, nickname: challenger.nickname, symbol: p1Symbol },
+            player2: { guestId: currentGuestId, ws: responder.ws, nickname: responder.nickname, symbol: p2Symbol },
+            board: boardArray,
             currentTurn: challengerId,
+            p1Score: gType === 'WORD_HUNT' ? 0 : undefined,
+            p2Score: gType === 'WORD_HUNT' ? 0 : undefined,
+            p1Words: gType === 'WORD_HUNT' ? [] : undefined,
+            p2Words: gType === 'WORD_HUNT' ? [] : undefined,
           };
+
+          if (gType === 'WORD_HUNT') {
+            setTimeout(() => {
+              if (activeGames[gameRoomId]) {
+                const g = activeGames[gameRoomId];
+                const p1 = g.p1Score || 0;
+                const p2 = g.p2Score || 0;
+                let winnerId: string | null = null;
+                let winnerName: string | null = null;
+                let draw = false;
+
+                if (p1 > p2) {
+                  winnerId = g.player1.guestId;
+                  winnerName = g.player1.nickname;
+                } else if (p2 > p1) {
+                  winnerId = g.player2.guestId;
+                  winnerName = g.player2.nickname;
+                } else {
+                  draw = true;
+                }
+
+                const gameOverMsg = {
+                  type: 'GAME_OVER',
+                  payload: {
+                    board: g.board,
+                    winnerId,
+                    winnerName,
+                    draw,
+                    scores: { p1Score: p1, p2Score: p2 }
+                  }
+                };
+
+                g.player1.ws.send(JSON.stringify(gameOverMsg));
+                g.player2.ws.send(JSON.stringify(gameOverMsg));
+                delete activeGames[gameRoomId];
+              }
+            }, 60000);
+          }
 
           challenger.ws.send(JSON.stringify({
             type: 'GAME_START',
@@ -294,8 +377,9 @@ export function handleGuestConnection(ws: WebSocket) {
               gameRoomId,
               gameType: gType,
               opponentNickname: responder.nickname,
-              symbol: isC4 ? 'R' : 'X',
+              symbol: p1Symbol,
               myTurn: true,
+              isPlayer1: true,
               board: activeGames[gameRoomId].board
             }
           }));
@@ -306,8 +390,9 @@ export function handleGuestConnection(ws: WebSocket) {
               gameRoomId,
               gameType: gType,
               opponentNickname: challenger.nickname,
-              symbol: isC4 ? 'Y' : 'O',
+              symbol: p2Symbol,
               myTurn: false,
+              isPlayer1: false,
               board: activeGames[gameRoomId].board
             }
           }));
@@ -460,6 +545,270 @@ export function handleGuestConnection(ws: WebSocket) {
           game.player1.ws.send(JSON.stringify(updateMsg(game.player1.guestId)));
           game.player2.ws.send(JSON.stringify(updateMsg(game.player2.guestId)));
         }
+      }
+
+      if (data.type === 'DOTS_AND_BOXES_MOVE') {
+        const { gameRoomId, lineIndex } = data.payload;
+        if (!currentGuestId || !activeGames[gameRoomId]) return;
+
+        const game = activeGames[gameRoomId];
+        if (game.currentTurn !== currentGuestId) return;
+        if (lineIndex < 0 || lineIndex >= 40 || game.board[lineIndex] !== null) return;
+
+        const isPlayer1 = game.player1.guestId === currentGuestId;
+        const playerSymbol = isPlayer1 ? 'R' : 'Y';
+        const opponentId = isPlayer1 ? game.player2.guestId : game.player1.guestId;
+
+        // Place line
+        game.board[lineIndex] = playerSymbol;
+
+        // Check completed boxes
+        let boxCompletedThisTurn = false;
+
+        for (let r = 0; r < 4; r++) {
+          for (let c = 0; c < 4; c++) {
+            const boxIndex = 40 + (r * 4 + c);
+            if (game.board[boxIndex] !== null) continue;
+
+            const top = r * 4 + c;
+            const bottom = (r + 1) * 4 + c;
+            const left = 20 + (r * 5 + c);
+            const right = 20 + (r * 5 + c + 1);
+
+            if (
+              game.board[top] !== null &&
+              game.board[bottom] !== null &&
+              game.board[left] !== null &&
+              game.board[right] !== null
+            ) {
+              game.board[boxIndex] = playerSymbol;
+              boxCompletedThisTurn = true;
+            }
+          }
+        }
+
+        let allBoxesClaimed = true;
+        let rCount = 0;
+        let yCount = 0;
+
+        for (let i = 40; i < 56; i++) {
+          if (game.board[i] === null) {
+            allBoxesClaimed = false;
+          } else if (game.board[i] === 'R') {
+            rCount++;
+          } else if (game.board[i] === 'Y') {
+            yCount++;
+          }
+        }
+
+        if (allBoxesClaimed) {
+          let winnerId: string | null = null;
+          let winnerName: string | null = null;
+          let draw = false;
+
+          if (rCount > yCount) {
+            winnerId = game.player1.guestId;
+            winnerName = game.player1.nickname;
+          } else if (yCount > rCount) {
+            winnerId = game.player2.guestId;
+            winnerName = game.player2.nickname;
+          } else {
+            draw = true;
+          }
+
+          const gameOverMsg = {
+            type: 'GAME_OVER',
+            payload: {
+              board: game.board,
+              winnerId,
+              winnerName,
+              draw
+            }
+          };
+
+          game.player1.ws.send(JSON.stringify(gameOverMsg));
+          game.player2.ws.send(JSON.stringify(gameOverMsg));
+          delete activeGames[gameRoomId];
+        } else {
+          if (!boxCompletedThisTurn) {
+            game.currentTurn = opponentId;
+          }
+
+          const updateMsg = (targetId: string) => ({
+            type: 'GAME_UPDATE',
+            payload: {
+              board: game.board,
+              myTurn: game.currentTurn === targetId
+            }
+          });
+
+          game.player1.ws.send(JSON.stringify(updateMsg(game.player1.guestId)));
+          game.player2.ws.send(JSON.stringify(updateMsg(game.player2.guestId)));
+        }
+      }
+
+      if (data.type === 'BATTLESHIP_PLACE') {
+        const { gameRoomId, shipCoordinates } = data.payload;
+        if (!currentGuestId || !activeGames[gameRoomId]) return;
+
+        const game = activeGames[gameRoomId];
+        const isPlayer1 = game.player1.guestId === currentGuestId;
+
+        if (isPlayer1) {
+          game.p1Ships = shipCoordinates;
+          game.p1ShipsPlaced = true;
+        } else {
+          game.p2Ships = shipCoordinates;
+          game.p2ShipsPlaced = true;
+        }
+
+        const placementDone = !!(game.p1ShipsPlaced && game.p2ShipsPlaced);
+
+        const updateMsg = (targetId: string) => ({
+          type: 'GAME_UPDATE',
+          payload: {
+            board: game.board,
+            myTurn: game.currentTurn === targetId,
+            placementDone,
+            p1Placed: game.p1ShipsPlaced,
+            p2Placed: game.p2ShipsPlaced
+          }
+        });
+
+        game.player1.ws.send(JSON.stringify(updateMsg(game.player1.guestId)));
+        game.player2.ws.send(JSON.stringify(updateMsg(game.player2.guestId)));
+      }
+
+      if (data.type === 'BATTLESHIP_STRIKE') {
+        const { gameRoomId, coordinateIndex } = data.payload;
+        if (!currentGuestId || !activeGames[gameRoomId]) return;
+
+        const game = activeGames[gameRoomId];
+        if (game.currentTurn !== currentGuestId) return;
+        if (!game.p1ShipsPlaced || !game.p2ShipsPlaced) return; // Wait for placement
+
+        const isPlayer1 = game.player1.guestId === currentGuestId;
+        const opponentId = isPlayer1 ? game.player2.guestId : game.player1.guestId;
+
+        if (isPlayer1) {
+          // Striking Player 2's board (mapped at indices 36 to 71)
+          const targetIndex = 36 + coordinateIndex;
+          if (game.board[targetIndex] !== null) return; // Already struck
+
+          const isHit = game.p2Ships?.includes(coordinateIndex);
+          game.board[targetIndex] = isHit ? 'H' : 'M';
+
+          // Check Win Condition
+          const isWin = game.p2Ships?.every(cell => game.board[36 + cell] === 'H');
+          if (isWin) {
+            const gameOverMsg = {
+              type: 'GAME_OVER',
+              payload: {
+                board: game.board,
+                winnerId: game.player1.guestId,
+                winnerName: game.player1.nickname,
+                draw: false
+              }
+            };
+            game.player1.ws.send(JSON.stringify(gameOverMsg));
+            game.player2.ws.send(JSON.stringify(gameOverMsg));
+            delete activeGames[gameRoomId];
+            return;
+          }
+        } else {
+          // Striking Player 1's board (mapped at indices 0 to 35)
+          const targetIndex = coordinateIndex;
+          if (game.board[targetIndex] !== null) return; // Already struck
+
+          const isHit = game.p1Ships?.includes(coordinateIndex);
+          game.board[targetIndex] = isHit ? 'H' : 'M';
+
+          // Check Win Condition
+          const isWin = game.p1Ships?.every(cell => game.board[cell] === 'H');
+          if (isWin) {
+            const gameOverMsg = {
+              type: 'GAME_OVER',
+              payload: {
+                board: game.board,
+                winnerId: game.player2.guestId,
+                winnerName: game.player2.nickname,
+                draw: false
+              }
+            };
+            game.player1.ws.send(JSON.stringify(gameOverMsg));
+            game.player2.ws.send(JSON.stringify(gameOverMsg));
+            delete activeGames[gameRoomId];
+            return;
+          }
+        }
+
+        // Alternate Turn
+        game.currentTurn = opponentId;
+
+        const updateMsg = (targetId: string) => ({
+          type: 'GAME_UPDATE',
+          payload: {
+            board: game.board,
+            myTurn: game.currentTurn === targetId,
+            placementDone: true
+          }
+        });
+
+        game.player1.ws.send(JSON.stringify(updateMsg(game.player1.guestId)));
+        game.player2.ws.send(JSON.stringify(updateMsg(game.player2.guestId)));
+      }
+
+      if (data.type === 'WORD_HUNT_SUBMIT_WORD') {
+        const { gameRoomId, word } = data.payload;
+        if (!currentGuestId || !activeGames[gameRoomId]) return;
+
+        const game = activeGames[gameRoomId];
+        const isPlayer1 = game.player1.guestId === currentGuestId;
+        const cleanWord = word.trim().toUpperCase();
+
+        if (cleanWord.length < 3) return;
+
+        const wordList = isPlayer1 ? game.p1Words : game.p2Words;
+        if (!wordList || wordList.includes(cleanWord)) return;
+
+        const boardPool = [...game.board];
+        let isValid = true;
+        for (const char of cleanWord) {
+          const charIndex = boardPool.indexOf(char);
+          if (charIndex === -1) {
+            isValid = false;
+            break;
+          }
+          boardPool[charIndex] = null;
+        }
+
+        if (!isValid) return;
+
+        let points = 100;
+        if (cleanWord.length === 4) points = 400;
+        else if (cleanWord.length === 5) points = 800;
+        else if (cleanWord.length >= 6) points = 1400;
+
+        if (isPlayer1) {
+          game.p1Score = (game.p1Score || 0) + points;
+          game.p1Words?.push(cleanWord);
+        } else {
+          game.p2Score = (game.p2Score || 0) + points;
+          game.p2Words?.push(cleanWord);
+        }
+
+        const scoreUpdate = {
+          type: 'WORD_HUNT_UPDATE',
+          payload: {
+            p1Score: game.p1Score,
+            p2Score: game.p2Score,
+            p1Words: game.p1Words,
+            p2Words: game.p2Words
+          }
+        };
+
+        game.player1.ws.send(JSON.stringify(scoreUpdate));
+        game.player2.ws.send(JSON.stringify(scoreUpdate));
       }
 
     } catch (err) {
