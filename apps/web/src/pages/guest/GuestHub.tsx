@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { Passport } from '../../components/profile/Passport';
+import { TournamentHub } from '../../components/tournament/TournamentHub';
+import { SponsorBanner } from '../../components/sponsor/SponsorBanner';
 
 interface SessionData {
   placement: { id: string; name: string };
@@ -15,6 +17,7 @@ interface GuestHubProps {
 export const GuestHub: React.FC<GuestHubProps> = ({ sessionData, onSelectOption }) => {
   const [showReferralModal, setShowReferralModal] = useState(false);
   const [showPassport, setShowPassport] = useState(false);
+  const [showTournament, setShowTournament] = useState(false);
   const [refVenueName, setRefVenueName] = useState('');
   const [refCity, setRefCity] = useState('');
   const [refOwnerContact, setRefOwnerContact] = useState('');
@@ -134,7 +137,22 @@ export const GuestHub: React.FC<GuestHubProps> = ({ sessionData, onSelectOption 
           </p>
         </div>
 
+        {/* Citywide Tournaments Card */}
+        <div 
+          className="glass-card hover-lift" 
+          onClick={() => setShowTournament(true)}
+          style={{ cursor: 'pointer', border: '1px solid #fbbf24', background: 'rgba(251, 191, 36, 0.03)' }}
+        >
+          <h3 style={{ margin: 0 }}>🏆 City Tournaments</h3>
+          <p className="text-secondary" style={{ margin: '0.5rem 0 0 0', fontSize: '0.9rem' }}>
+            See active city challenges, standings, and leaderboard points!
+          </p>
+        </div>
+
       </div>
+
+      {/* Sponsor Advertisement Banner */}
+      <SponsorBanner />
 
       {/* Referral Modal Form overlay */}
       {showReferralModal && (
@@ -217,6 +235,9 @@ export const GuestHub: React.FC<GuestHubProps> = ({ sessionData, onSelectOption 
       )}
       {showPassport && (
         <Passport onClose={() => setShowPassport(false)} />
+      )}
+      {showTournament && (
+        <TournamentHub city="Ashburn" onClose={() => setShowTournament(false)} />
       )}
 
     </div>

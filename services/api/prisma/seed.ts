@@ -74,9 +74,36 @@ async function main() {
     },
   });
 
+  // 6. Create a Tournament
+  const tournament = await prisma.tournament.create({
+    data: {
+      name: 'Ashburn Summer Trivia Showdown 🏆',
+      city: 'Ashburn',
+      startDate: new Date(),
+      endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
+      venues: {
+        create: [
+          { venueId: venue.id }
+        ]
+      }
+    }
+  });
+
+  // 7. Create a Sponsor
+  await prisma.sponsor.create({
+    data: {
+      name: 'Stella Artois',
+      promoText: 'Buy a Stella Artois Pint & get a Free Bruschetta! 🍺',
+      logoUrl: 'https://images.unsplash.com/photo-1597075687490-8f673c6c17f6?w=100',
+      promoUrl: 'https://stellaartois.com',
+      active: true
+    }
+  });
+
   console.log('Database seeded successfully!');
   console.log(`Created Owner: ${owner.email}`);
   console.log(`Created Venue: ${venue.name} (${location.name})`);
+  console.log(`Created Tournament: ${tournament.name}`);
 }
 
 main()

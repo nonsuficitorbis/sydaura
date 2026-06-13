@@ -15,12 +15,13 @@ model Account {
 }
 
 model Venue {
-  id        String   @id @default(uuid())
-  name      String
-  accountId String
-  account   Account  @relation(fields: [accountId], references: [id])
-  locations VenueLocation[]
-  visits    GuestVisit[]
+  id          String   @id @default(uuid())
+  name        String
+  accountId   String
+  account     Account  @relation(fields: [accountId], references: [id])
+  locations   VenueLocation[]
+  visits      GuestVisit[]
+  tournaments VenueTournament[]
 }
 
 model VenueLocation {
@@ -56,6 +57,8 @@ model Session {
   venueLocationId String
   location        VenueLocation @relation(fields: [venueLocationId], references: [id])
   guestSessions   GuestSession[]
+  tournamentId    String?
+  tournament      Tournament? @relation(fields: [tournamentId], references: [id])
 }
 
 model GuestSession {
@@ -130,4 +133,34 @@ model GuestVisit {
   venueId      String
   venue        Venue        @relation(fields: [venueId], references: [id])
   visitedAt    DateTime     @default(now())
+}
+
+model Tournament {
+  id          String             @id @default(uuid())
+  name        String
+  city        String
+  startDate   DateTime
+  endDate     DateTime
+  createdAt   DateTime           @default(now())
+  venues      VenueTournament[]
+  sessions    Session[]
+}
+
+model VenueTournament {
+  venueId      String
+  venue        Venue             @relation(fields: [venueId], references: [id])
+  tournamentId String
+  tournament   Tournament        @relation(fields: [tournamentId], references: [id])
+
+  @@id([venueId, tournamentId])
+}
+
+model Sponsor {
+  id          String             @id @default(uuid())
+  name        String
+  logoUrl     String?
+  promoText   String
+  promoUrl    String?
+  active      Boolean            @default(true)
+  createdAt   DateTime           @default(now())
 }
